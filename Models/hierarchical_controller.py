@@ -10,13 +10,12 @@ action_mode = 'joint_torques'
 frames_per_batch = 1000
 
 
-
+# observation params specifies how many variable objects are there in the environment.
 class AttentionSubModule(nn.Module):
-    def __init__(self, observation_constants, is_hidden=False):
+    def __init__(self, observation_constants, observation_params, is_hidden=False):
         super(AttentionSubModule, self).__init__()
         self.observation_constants = observation_constants
-        self.attention = nn.Sequential(nn.Linear(self.observation_constants['observation_size'], self.observation_constants['observation_size']),
-                                       nn.Sigmoid())
+        self.
 
 
 # A planner contains attention
@@ -35,3 +34,6 @@ class LeveledStrategy(nn.Module):
 
     def forward(self, x):
         return self.levels[self.level](x)
+
+# sanity check, for reaching task
+class LazyPlannerModule(nn.Module):
