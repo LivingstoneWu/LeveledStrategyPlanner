@@ -37,3 +37,5 @@ class LeveledStrategy(nn.Module):
 
 # sanity check, for reaching task
 class LazyPlannerModule(nn.Module):
+    def __init__(self, observation_constants):
+        
