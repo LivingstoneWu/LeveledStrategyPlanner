@@ -3,6 +3,10 @@ from causal_world.task_generators.task import generate_task
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import gym
+from Env.CausalEnv import CausalWorldEnv
+from torchrl.envs.utils import check_env_specs
+from Models.hierarchical_controller import observation_params
 
 # plotting distance distribution
 
@@ -42,6 +46,31 @@ import torch
 # print(observation[28:])
 # print(len(observation))
 
-a = torch.zeros(1, 2)
-print(a)
-print(a.size())
+# env = CausalWorld(task=generate_task(task_generator_id='pushing'), enable_visualization=False, action_mode='joint_positions')
+# print(env.action_space)
+# print(type(env.action_space))
+
+# # Create a Box space
+# space = gym.spaces.Box(low=0, high=255, shape=(4,), dtype=np.uint8)
+#
+# # Retrieve the bounds and data type
+# lower_bound = space.low
+# upper_bound = space.high
+# data_type = space.dtype
+#
+# print("Lower Bound:", type(lower_bound))
+# print("Upper Bound:", upper_bound)
+# print("Data Type:", data_type)
+
+task_params = {
+    'num_objects': 1,
+    'num_goals': 1,
+    'num_blocks': 0
+}
+
+env=CausalWorldEnv(task=generate_task('pushing'), observation_params=observation_params, task_params = task_params, enable_visualization = False, action_mode='joint_positions')
+check_env_specs(env)
+
+# env = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_positions')
+# print(env.reset())
+# print(len(env.reset()))
