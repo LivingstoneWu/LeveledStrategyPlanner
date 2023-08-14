@@ -68,9 +68,8 @@ task_params = {
     'num_blocks': 0
 }
 
-env=CausalWorldEnv(task=generate_task('pushing'), observation_params=observation_params, task_params = task_params, enable_visualization = False, action_mode='joint_positions')
-check_env_specs(env)
+# env=CausalWorldEnv(task=generate_task('pushing'), observation_params=observation_params, task_params = task_params, enable_visualization = False, action_mode='joint_positions')
+# check_env_specs(env)
 
-# env = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_positions')
-# print(env.reset())
-# print(len(env.reset()))
+env = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques')
+print(env.action_space.sample())

@@ -30,3 +30,32 @@ class EnvConstants:
         # special case for reaching task
         'goal_positions': [28, 37]
     }
+
+    TASK_PARAMS = {
+        'pushing': {
+            'num_objects': 1,
+            'num_goals': 1,
+            'num_blocks': 0
+        },
+        'picking': {
+            'num_objects': 1,
+            'num_goals': 1,
+            'num_blocks': 0
+        },
+        'pick_and_place': {
+            'num_objects': 1,
+            'num_goals': 1,
+            'num_blocks': 1
+        },
+        'stacking2': {
+            'num_objects': 2,
+            'num_goals': 2,
+            'num_blocks': 0
+        },
+        'towers': {
+            'num_objects': 5,
+            'num_goals': 5,
+            'num_blocks': 0
+        }
+
+    }
