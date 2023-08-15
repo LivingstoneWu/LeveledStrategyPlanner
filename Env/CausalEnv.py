@@ -40,6 +40,7 @@ class CausalWorldEnv(EnvBase):
     def _step(self, tensordict):
         action = tensordict['action']
         # need unsqueeze the batch_size dimension here. Check the training code though
+        action = action.squeeze(0)
         observation, reward, done, info = self.env.step(Tensor.numpy(action))
         out_tensordict = TensorDict(
             {
