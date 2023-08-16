@@ -1,4 +1,6 @@
 from collections import defaultdict
+import sys
+sys.path.insert(0, '/root/causal_world/')
 
 import torch
 from causal_world.envs import CausalWorld
@@ -46,15 +48,15 @@ action_mode = 'joint_positions'
 
 #training params
 sub_batch_size = 64
-num_epochs = 10
+num_epochs = 5
 clip_epsilon = (0.2)
 gamma = 0.99
 lmbda = 0.95
-entropy_eps = 1e-3
+entropy_eps = 2e-4
 frames_per_batch = 1000
-total_frames = 1e5
-lr = 4e-4
-max_grad_norm = 1.0
+total_frames = 1e7
+lr = 1e-3
+max_grad_norm = 10
 
 # model params
 model_params = {
