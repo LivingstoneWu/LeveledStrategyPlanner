@@ -4,9 +4,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import gym
+
+import env_constants
 from Env.CausalEnv import CausalWorldEnv
 from torchrl.envs.utils import check_env_specs
-from Models.hierarchical_controller import observation_params
+from Models import hierarchical_controller
+from env_constants import *
+
+import sys
+sys.path.insert(0, '/root/causal_world/')
 
 # plotting distance distribution
 
@@ -62,14 +68,30 @@ from Models.hierarchical_controller import observation_params
 # print("Upper Bound:", upper_bound)
 # print("Data Type:", data_type)
 
-task_params = {
-    'num_objects': 1,
-    'num_goals': 1,
-    'num_blocks': 0
-}
+# task_params = {
+#     'num_objects': 1,
+#     'num_goals': 1,
+#     'num_blocks': 0
+# }
 
 # env=CausalWorldEnv(task=generate_task('pushing'), observation_params=observation_params, task_params = task_params, enable_visualization = False, action_mode='joint_positions')
 # check_env_specs(env)
 
-env = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques')
-print(env.action_space.sample())
+env1 = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques', seed=3)
+observation1 = env1.reset()
+env2 = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques')
+observation2 = env2.reset()
+print(observation1-observation2)
+
+
+
+
+
+
+# model = hierarchical_controller.LazyPlanner(
+#     num_levels=5,
+#     start_hidden_size=1024,
+#     task_params=env_constants.EnvConstants.TASK_PARAMS['pushing']
+# )
+#
+# print(next(model.parameters()).device)

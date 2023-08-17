@@ -3,7 +3,6 @@ import torch.nn as nn
 import env_constants
 import torch.nn.functional as F
 
-
 observation_constants = env_constants.EnvConstants.OBSERVATION_INDICES
 
 # model params
@@ -55,17 +54,15 @@ def slice_indices(tensor, indices):
     return tensor[:, indices[0]:indices[1]]
 
 
-def padding_observation(observation, task_params, observation_params=observation_params, time_left_length=1):
+def padding_observation(observation, task_params, device, observation_params=observation_params, time_left_length=1):
     """
     Input: observation ndarray, (batch_size, observation_length)
     Output: padded observation tensor
     Params: task_params specify the number of each objects in the task
     """
 
-
-
     # calculate the indices for slicing first
-    joint_indices = [x+time_left_length for x in observation_params['joint_indices']]
+    joint_indices = [x + time_left_length for x in observation_params['joint_indices']]
     object_start_index = joint_indices[1]
     goal_start_index = object_start_index + task_params['num_objects'] * observation_params['object_length']
     block_start_index = goal_start_index + task_params['num_goals'] * observation_params['goal_length']
@@ -78,9 +75,15 @@ def padding_observation(observation, task_params, observation_params=observation
     block_observation = slice_indices(observation, [block_start_index, block_end_index])
 
     # pad the observation tensor
-    pad_obj = torch.cat((object_observation, torch.zeros(observation.size()[0], (observation_params['num_objects'] - task_params['num_objects']) * observation_params['object_length'])), dim=1)
-    pad_goal = torch.cat((goal_observation, torch.zeros(observation.size()[0], (observation_params['num_goals'] - task_params['num_goals']) * observation_params['goal_length'])), dim=1)
-    pad_block = torch.cat((block_observation, torch.zeros(observation.size()[0], (observation_params['num_blocks'] - task_params['num_blocks']) * observation_params['block_length'])), dim=1)
+    pad_obj = torch.cat((object_observation, torch.zeros(observation.size()[0], (
+                observation_params['num_objects'] - task_params['num_objects']) * observation_params['object_length'], device=device)),
+                        dim=1)
+    pad_goal = torch.cat((goal_observation, torch.zeros(observation.size()[0],
+                                                        (observation_params['num_goals'] - task_params['num_goals']) *
+                                                        observation_params['goal_length'], device=device)), dim=1)
+    pad_block = torch.cat((block_observation, torch.zeros(observation.size()[0], (
+                observation_params['num_blocks'] - task_params['num_blocks']) * observation_params['block_length'], device=device)),
+                          dim=1)
 
     # concatenate the padded observation tensor
     padded_observation = torch.cat((joint_observation, pad_obj, pad_goal, pad_block), dim=1)
@@ -114,13 +117,14 @@ class AttentionSubModule(nn.Module):
         observation_params: indices of start-end of each group of variables, num_queries
 
     """
+
     def __init__(self, observation_params=observation_params, key_value_size=DEFAULT_KEY_VALUE_SIZE, dropout=0.1):
         super(AttentionSubModule, self).__init__()
         # indices, parameters
         self.key_value_size = key_value_size
         self.observation_params = observation_params
         self.num_queries = observation_params['num_queries']
-        self.num_joints= observation_params['num_joints']
+        self.num_joints = observation_params['num_joints']
         self.num_objects = observation_params['num_objects']
         self.num_goals = observation_params['num_goals']
         self.num_blocks = observation_params['num_blocks']
@@ -149,18 +153,26 @@ class AttentionSubModule(nn.Module):
 
     # Input: (batch_size, observation_size)
     def forward(self, x):
-        joint_keys = self.joint_Key(slice_indices(x, self.observation_params['joint_indices']).view(-1, self.num_joints, self.joint_length))
-        object_keys = self.object_Key(slice_indices(x, self.observation_params['object_indices']).view(-1, self.num_objects, self.object_length))
-        goal_keys = self.goal_Key(slice_indices(x, self.observation_params['goal_indices']).view(-1, self.num_goals, self.goal_length))
-        block_keys = self.block_Key(slice_indices(x, self.observation_params['block_indices']).view(-1, self.num_blocks, self.block_length))
+        joint_keys = self.joint_Key(
+            slice_indices(x, self.observation_params['joint_indices']).view(-1, self.num_joints, self.joint_length))
+        object_keys = self.object_Key(
+            slice_indices(x, self.observation_params['object_indices']).view(-1, self.num_objects, self.object_length))
+        goal_keys = self.goal_Key(
+            slice_indices(x, self.observation_params['goal_indices']).view(-1, self.num_goals, self.goal_length))
+        block_keys = self.block_Key(
+            slice_indices(x, self.observation_params['block_indices']).view(-1, self.num_blocks, self.block_length))
 
         # queries & keys of the shape (batch_size, num_queries, key_value_size)
         keys = torch.cat([joint_keys, object_keys, goal_keys, block_keys], dim=1)
 
-        joint_values = self.joint_Value(slice_indices(x, self.observation_params['joint_indices']).view(-1, self.num_joints, self.joint_length))
-        object_values = self.object_Value(slice_indices(x, self.observation_params['object_indices']).view(-1, self.num_objects, self.object_length))
-        goal_values = self.goal_Value(slice_indices(x, self.observation_params['goal_indices']).view(-1, self.num_goals, self.goal_length))
-        block_values = self.block_Value(slice_indices(x, self.observation_params['block_indices']).view(-1, self.num_blocks, self.block_length))
+        joint_values = self.joint_Value(
+            slice_indices(x, self.observation_params['joint_indices']).view(-1, self.num_joints, self.joint_length))
+        object_values = self.object_Value(
+            slice_indices(x, self.observation_params['object_indices']).view(-1, self.num_objects, self.object_length))
+        goal_values = self.goal_Value(
+            slice_indices(x, self.observation_params['goal_indices']).view(-1, self.num_goals, self.goal_length))
+        block_values = self.block_Value(
+            slice_indices(x, self.observation_params['block_indices']).view(-1, self.num_blocks, self.block_length))
 
         # values of the shape (batch_size, num_queries, key_value_size)
         values = torch.cat([joint_values, object_values, goal_values, block_values], dim=1)
@@ -172,15 +184,17 @@ class AttentionSubModule(nn.Module):
         x = self.LayerNorm(x)
         return x
 
+
 class LazyPlannerModule(nn.Module):
     """
     LazyPlanner do not have predictor module. this class will always be hidden planners.
     Input: observation + prev_hidden_state (plan), lstm_hidden_state, lstm_cell_state
     Output: hidden_state (plan) for the next level
     """
+
     def __init__(self, hidden_size, dropout=0.1, observation_params=observation_params):
         super(LazyPlannerModule, self).__init__()
-        self.hidden_size=hidden_size
+        self.hidden_size = hidden_size
         self.attention = AttentionSubModule()
         # last layer's hidden size is 2 * of this layer
         self.lstm = nn.LSTM(input_size=hidden_size * 2 + observation_params['attention_length'], num_layers=2,
@@ -194,14 +208,17 @@ class LazyPlannerModule(nn.Module):
         attention = self.attention(x[:, :self.observation_params['observation_full_length']])
         plan = x[:, self.observation_params['observation_full_length']:].unsqueeze(1)
         attention_flatten = torch.flatten(attention, start_dim=1).unsqueeze(1)
-        current_hidden_state = current_hidden_state.permute(1, 0, 2)
-        current_cell_state = current_cell_state.permute(1, 0, 2)
-        lstm_output, (next_hidden_state, next_cell_state) = self.lstm(torch.cat([plan, attention_flatten], dim=2), (current_hidden_state, current_cell_state))
+        current_hidden_state = current_hidden_state.permute(1, 0, 2).contiguous()
+        current_cell_state = current_cell_state.permute(1, 0, 2).contiguous()
+        lstm_output, (next_hidden_state, next_cell_state) = self.lstm(torch.cat([plan, attention_flatten], dim=2),
+                                                                      (current_hidden_state, current_cell_state))
         next_hidden_state = next_hidden_state.permute(1, 0, 2)
         next_cell_state = next_cell_state.permute(1, 0, 2)
         # residual connection and layer normalization
-        x = self.residual_connection(x[:, self.observation_params['observation_full_length']:]) + self.layer_norm(lstm_output.squeeze(1))
+        x = self.residual_connection(x[:, self.observation_params['observation_full_length']:]) + self.layer_norm(
+            lstm_output.squeeze(1))
         return x, next_hidden_state, next_cell_state
+
 
 class LazyPlannerStarter(nn.Module):
     """
@@ -222,21 +239,21 @@ class LazyPlannerStarter(nn.Module):
         self.residual_connection = nn.Linear(observation_params['observation_full_length'], hidden_size)
 
     def forward(self, x, current_hidden_state, current_cell_state):
-
         # x: (batch_size, obsevation_size + hidden_size)
         attention = self.attention(x[:, :self.observation_params['observation_full_length']])
         attention_flatten = torch.flatten(attention, start_dim=1).unsqueeze(1)
         # hidden_state: (batch_size, num_layers, hidden_size)
-        current_hidden_state = current_hidden_state.permute(1, 0, 2)
-        current_cell_state = current_cell_state.permute(1, 0, 2)
+        current_hidden_state = current_hidden_state.permute(1, 0, 2).contiguous()
+        current_cell_state = current_cell_state.permute(1, 0, 2).contiguous()
 
         lstm_output, (next_hidden_state, next_cell_state) = self.lstm(attention_flatten,
-                                                          (current_hidden_state, current_cell_state))
+                                                                      (current_hidden_state, current_cell_state))
         next_hidden_state = next_hidden_state.permute(1, 0, 2)
         next_cell_state = next_cell_state.permute(1, 0, 2)
 
         # residual connection and layer normalization
-        x = self.residual_connection(x[:, :self.observation_params['observation_full_length']]) + self.layer_norm(lstm_output.squeeze(1))
+        x = self.residual_connection(x[:, :self.observation_params['observation_full_length']]) + self.layer_norm(
+            lstm_output.squeeze(1))
         return x, next_hidden_state, next_cell_state
 
 
@@ -249,18 +266,23 @@ class LazyPlanner(nn.Module):
          Note the start hidden size should be divisible by 2^(num_levels-1)
          The num_levels counts the number of planners, excluding the final FC layers.
     """
-    def __init__(self, num_levels, start_hidden_size, task_params, dropout=0.1, observation_params=observation_params):
+
+    def __init__(self, num_levels, start_hidden_size, task_params, device, dropout=0.1,
+                 observation_params=observation_params):
         super(LazyPlanner, self).__init__()
         self.num_levels = num_levels
         self.start_hidden_size = start_hidden_size
         self.dropout = dropout
+        self.device = device
         self.observation_params = observation_params
         # define layers of planners
-        self.startPlannerLayer = LazyPlannerStarter(start_hidden_size, dropout=dropout, observation_params=observation_params)
+        self.startPlannerLayer = LazyPlannerStarter(start_hidden_size, dropout=dropout,
+                                                    observation_params=observation_params)
         self.plannerLayers = nn.ModuleList()
         current_hidden_size = start_hidden_size // 2
         for i in range(num_levels - 1):
-            self.plannerLayers.append(LazyPlannerModule(current_hidden_size, dropout=dropout, observation_params=observation_params))
+            self.plannerLayers.append(
+                LazyPlannerModule(current_hidden_size, dropout=dropout, observation_params=observation_params))
             current_hidden_size = current_hidden_size // 2
         # final FC layers
         self.fc1 = nn.Linear(current_hidden_size * 2, current_hidden_size * 4)
@@ -268,19 +290,20 @@ class LazyPlanner(nn.Module):
         self.output = nn.Linear(current_hidden_size * 4, observation_params['action_size'] * 2)
         self.task_params = task_params
 
-
     def forward(self, observation, hidden_states, cell_states):
-        padded_observation = padding_observation(observation, self.task_params)
+        padded_observation = padding_observation(observation, self.task_params, device=self.device)
         new_hidden_states = []
         new_cell_states = []
         # start planner
-        initial_plan, new_hidden_state, new_cell_state = self.startPlannerLayer(padded_observation, hidden_states[0], cell_states[0])
+        initial_plan, new_hidden_state, new_cell_state = self.startPlannerLayer(padded_observation, hidden_states[0],
+                                                                                cell_states[0])
         new_hidden_states.append(new_hidden_state)
         new_cell_states.append(new_cell_state)
         # propagate through planners
         current_plan = initial_plan
         for i in range(self.num_levels - 1):
-            current_plan, new_hidden_state, new_cell_state = self.plannerLayers[i](torch.cat((padded_observation, current_plan), dim=1), hidden_states[i+1], cell_states[i+1])
+            current_plan, new_hidden_state, new_cell_state = self.plannerLayers[i](
+                torch.cat((padded_observation, current_plan), dim=1), hidden_states[i + 1], cell_states[i + 1])
             new_hidden_states.append(new_hidden_state)
             new_cell_states.append(new_cell_state)
         # final FC layers
@@ -293,25 +316,26 @@ class LazyPlanner(nn.Module):
     def set_task_params(self, task_params):
         self.task_params = task_params
 
+
 # a simple value network to speed up training. Similar attention module used.
 class ValueNetwork(nn.Module):
-    def __init__(self, task_params, observation_params=observation_params):
+    def __init__(self, task_params, device, observation_params=observation_params):
         super(ValueNetwork, self).__init__()
         self.task_params = task_params
+        self.device = device
         self.attention = AttentionSubModule()
         self.fc1 = nn.Linear(observation_params['attention_length'], 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 1)
 
     def forward(self, observation):
-        observation = padding_observation(observation, self.task_params)
+        observation = padding_observation(observation, self.task_params, device=self.device)
         attention = self.attention(observation)
         attention_flatten = attention.view(attention.size(0), -1)
         x = F.relu(self.fc1(attention_flatten))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-
 
 # # A predictor predicts the environment state after preset time steps.
 # class PredictorSubModule(nn.Module):
@@ -341,4 +365,3 @@ class ValueNetwork(nn.Module):
 #
 #     def forward(self, x):
 #         return self.levels[self.level](x)
-

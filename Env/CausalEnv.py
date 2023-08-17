@@ -41,7 +41,7 @@ class CausalWorldEnv(EnvBase):
         action = tensordict['action']
         # need unsqueeze the batch_size dimension here. Check the training code though
         action = action.squeeze(0)
-        observation, reward, done, info = self.env.step(Tensor.numpy(action))
+        observation, reward, done, info = self.env.step(Tensor.numpy(action.cpu()))
         out_tensordict = TensorDict(
             {
                 "next":{
@@ -57,26 +57,6 @@ class CausalWorldEnv(EnvBase):
     def _set_seed(self, seed):
         self.env.seed(seed)
 
-# class CausalWorldEnv:
-#     def __init__(self, task_params, observation_params=hierarchical_controller.observation_params, **kwargs):
-#         self.env = CausalWorld(**kwargs)
-#         self.observation_params = observation_params
-#         self.task_params = task_params
-#
-#     def reset(self, init_hidden_states, init_cell_states):
-#         dict = {}
-#         dict['observation'] = self.env.reset()
-#         dict['hidden_states'] = init_hidden_states
-#         dict['cell_states'] = init_cell_states
-#         return dict
-#
-#     def step(self, dict, action, hidden_states, cell_states):
-#         dict['next'] = {}
-#         dict['next']['observation'], dict['reward'], dict['done']= self.env.step(action)
-#         dict['next']['hidden_states'] = hidden_states
-#         dict['next']['cell_states'] = cell_states
-#         return dict
-#
 
-
-
+class CurriculumCWEnv(EnvBase):
+    def __init__(self, ):
