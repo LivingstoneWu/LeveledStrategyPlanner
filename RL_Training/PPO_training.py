@@ -1,5 +1,6 @@
 from collections import defaultdict
 import sys
+import argparse
 
 sys.path.insert(0, '/root/causal_world/')
 
@@ -13,7 +14,7 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torch import nn
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import ProbabilisticActor, TanhNormal, ValueOperator
-from torchrl.collectors import MultiSyncDataCollector
+from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage, LazyMemmapStorage
@@ -40,30 +41,6 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 
 device = "cpu" if not torch.has_cuda else "cuda:0"
-
-# env params
-env_freq = 250
-frame_skip = 5
-action_mode = 'joint_positions'
-
-# training params
-sub_batch_size = 1024
-num_epochs = 6
-clip_epsilon = (0.2)
-gamma = 0.99
-lmbda = 0.95
-entropy_eps = 2e-4
-frames_per_batch = 10000
-total_frames = 1e7
-lr = 1e-3
-max_grad_norm = 10
-
-# model params
-model_params = {
-    'num_levels': 5,
-    'start_hidden_size': 1024,
-}
-
 
 # helper function to split tensor at given index
 def split_2dtensor_on2nd(tensor, index):
@@ -97,7 +74,7 @@ def planner_with_split(planner, observation, hidden_states, cell_states, model_p
         cell_state, cell_states = split_3dtensor_on3rd(cell_states, model_params['start_hidden_size'] // (2 ** i))
         hidden_states_list.append(hidden_state)
         cell_states_list.append(cell_state)
-    # the lists passed to the planner: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
+    # the lists passed t the planner: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
     loc, scale, new_hidden_states, new_cell_states = planner(observation, hidden_states_list, cell_states_list)
     # returned hidden_states_lists: (num_levels, batch_size, 2, hidden_size_at_level)
     # the first rows: shape (batch_size, 2, start_hidden_size)
@@ -131,11 +108,71 @@ def get_hidden_states_specs(model_params):
 
 if __name__ == '__main__':
 
-    pushing_env = CausalWorldEnv(task_params=EnvConstants.TASK_PARAMS['pushing'],
-                                 task=generate_task(task_generator_id='pushing'), enable_visualization=False,
+    # env params
+    env_freq = 250
+    frame_skip = 5
+    action_mode = 'joint_torques'
+
+
+    # training params
+    clip_epsilon = (0.2)
+    gamma = 0.99
+    lmbda = 0.95
+    entropy_eps = 2e-4
+    lr = 1e-3
+    max_grad_norm = 1.0
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task",
+                    required=False,
+                    default='pushing',
+                    help="the task id")
+    ap.add_argument("--model_levels",
+                    required=False,
+                    default=6,
+                    help="the number of levels in the model")
+    ap.add_argument("--model_start_hidden_size",
+                    required=False,
+                    default=4096,
+                    help="the number of hidden units in the first layer of the model, must be devisible by 2**(num_levels-1)")
+    ap.add_argument("--num_parallel_envs",
+                    required=False,
+                    default=16,
+                    help="the number of parallel environments when collecting data. The number depends on the number of your cpu cores.")
+    ap.add_argument("--sub-batch_size",
+                    required=False,
+                    default=256,
+                    help="the sub batch size for training")
+    ap.add_argument("--num_epochs",
+                    required=False,
+                    default=6,
+                    help="the number of epochs for training")
+    ap.add_argument("--total_frames",
+                    required=False,
+                    default=1e7,
+                    help="the total number of frames to train")
+    ap.add_argument("--frames_per_batch",
+                    required=False,
+                    default=10000,
+                    help="the number of frames per batch")
+    args = vars(ap.parse_args())
+    sub_batch_size=args['sub_batch_size']
+    num_epochs=args['num_epochs']
+    frames_per_batch=args['frames_per_batch']
+    total_frames=args['total_frames']
+    model_params=dict()
+    model_params['num_levels']=args['model_levels']
+    model_params['start_hidden_size']=args['model_start_hidden_size']
+    task_id=args['task']
+    num_parallel_envs=args['num_parallel_envs']
+
+
+
+    env = CausalWorldEnv(task_params=EnvConstants.TASK_PARAMS[task_id],
+                                 task=generate_task(task_generator_id=task_id), enable_visualization=False,
                                  action_mode=action_mode)
-    pushing_env = TransformedEnv(
-        pushing_env,
+    env = TransformedEnv(
+        env,
         Compose(StepCounter(),
                 InitTracker(),
                 TensorDictPrimer(hidden_states=get_hidden_states_specs(model_params),
@@ -155,12 +192,12 @@ if __name__ == '__main__':
     # Build distribution with the output of the planners
     policy_module = ProbabilisticActor(
         module=policy_module,
-        spec=pushing_env.action_spec,
+        spec=env.action_spec,
         in_keys=['loc', 'scale'],
         distribution_class=TanhNormal,
         distribution_kwargs={
-            "min": pushing_env.action_spec.space.minimum,
-            "max": pushing_env.action_spec.space.maximum,
+            "min": env.action_spec.space.minimum,
+            "max": env.action_spec.space.maximum,
         },
         return_log_prob=True,
         safe=True,
@@ -173,12 +210,13 @@ if __name__ == '__main__':
         in_keys=['observation'],
     )
 
-    data_collector = MultiSyncDataCollector(
-        [pushing_env] * 16,
+    data_collector = SyncDataCollector(
+        env,
         policy_module,
         frames_per_batch=frames_per_batch,
         total_frames=total_frames,
         device=device,
+        storing_device=device,
     )
 
     advantage_module = GAE(
@@ -198,7 +236,7 @@ if __name__ == '__main__':
     )
 
     replay_buffer = ReplayBuffer(
-        storage=LazyMemmapStorage(frames_per_batch),
+        storage=LazyMemmapStorage(frames_per_batch, device=device),
         sampler=SamplerWithoutReplacement(),
     )
 
@@ -227,7 +265,7 @@ if __name__ == '__main__':
             # for sub_batch, calculate the loss and backprop
             for _ in range(frames_per_batch // sub_batch_size):
                 subdata = replay_buffer.sample(sub_batch_size)
-                loss_vals = loss_module(subdata.to(device))
+                loss_vals = loss_module(subdata)
                 loss_value = (
                         loss_vals["loss_objective"]
                         + loss_vals["loss_critic"]
@@ -259,7 +297,7 @@ if __name__ == '__main__':
                 # it will then execute this policy at each step.
                 with set_exploration_type(ExplorationType.MEAN), torch.no_grad():
                     # execute a rollout with the trained policy
-                    eval_rollout = pushing_env.rollout(1000, policy_module)
+                    eval_rollout = env.rollout(1000, policy_module)
                     logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
                     logs["eval reward (sum)"].append(
                         eval_rollout["next", "reward"].sum().item()
