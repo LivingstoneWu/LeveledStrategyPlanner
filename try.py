@@ -77,12 +77,12 @@ sys.path.insert(0, '/root/causal_world/')
 # env=CausalWorldEnv(task=generate_task('pushing'), observation_params=observation_params, task_params = task_params, enable_visualization = False, action_mode='joint_positions')
 # check_env_specs(env)
 
-env1 = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques', seed=3)
+env1 = CausalWorld(task=generate_task('pushing'), enable_visualization=True, action_mode='joint_torques', seed=3)
 observation1 = env1.reset()
-env2 = CausalWorld(task=generate_task('pushing'), enable_visualization=False, action_mode='joint_torques')
-observation2 = env2.reset()
-print(observation1-observation2)
-
+# for i in range(1000):
+#     observation1, reward, done, info = env1.step(env1.action_space.sample())
+#     print(reward)
+print(env1.action_space)
 
 
 

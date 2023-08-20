@@ -3,7 +3,7 @@ import sys
 import argparse
 
 sys.path.insert(0, '/root/causal_world/')
-
+import numpy as np
 import torch
 from causal_world.envs import CausalWorld
 from tensordict.nn import TensorDictModule
@@ -30,7 +30,7 @@ from torchrl.envs import (
 from torchrl.envs.libs.gym import GymEnv
 from Env.CausalEnv import CausalWorldEnv
 from env_constants import *
-from Models.hierarchical_controller import *
+from Models.controller_attention_through import *
 from torchrl.objectives import ClipPPOLoss
 from torchrl.data import UnboundedContinuousTensorSpec
 from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
@@ -41,6 +41,7 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 
 device = "cpu" if not torch.has_cuda else "cuda:0"
+# device = torch.device('mps')
 
 # helper function to split tensor at given index
 def split_2dtensor_on2nd(tensor, index):
@@ -111,7 +112,7 @@ if __name__ == '__main__':
     # env params
     env_freq = 250
     frame_skip = 5
-    action_mode = 'joint_torques'
+    action_mode = 'joint_positions'
 
 
     # training params
@@ -129,31 +130,31 @@ if __name__ == '__main__':
                     help="the task id")
     ap.add_argument("--model_levels",
                     required=False,
-                    default=6,
+                    default=3,
                     help="the number of levels in the model")
     ap.add_argument("--model_start_hidden_size",
                     required=False,
-                    default=4096,
+                    default=256,
                     help="the number of hidden units in the first layer of the model, must be devisible by 2**(num_levels-1)")
-    ap.add_argument("--num_parallel_envs",
-                    required=False,
-                    default=16,
-                    help="the number of parallel environments when collecting data. The number depends on the number of your cpu cores.")
+    # ap.add_argument("--num_parallel_envs",
+    #                 required=False,
+    #                 default=16,
+    #                 help="the number of parallel environments when collecting data. The number depends on the number of your cpu cores.")
     ap.add_argument("--sub-batch_size",
                     required=False,
-                    default=256,
+                    default=100,
                     help="the sub batch size for training")
     ap.add_argument("--num_epochs",
                     required=False,
-                    default=6,
+                    default=4,
                     help="the number of epochs for training")
     ap.add_argument("--total_frames",
                     required=False,
-                    default=1e7,
+                    default=2e5,
                     help="the total number of frames to train")
     ap.add_argument("--frames_per_batch",
                     required=False,
-                    default=10000,
+                    default=1000,
                     help="the number of frames per batch")
     args = vars(ap.parse_args())
     sub_batch_size=args['sub_batch_size']
@@ -164,7 +165,7 @@ if __name__ == '__main__':
     model_params['num_levels']=args['model_levels']
     model_params['start_hidden_size']=args['model_start_hidden_size']
     task_id=args['task']
-    num_parallel_envs=args['num_parallel_envs']
+    # num_parallel_envs=args['num_parallel_envs']
 
 
 
@@ -248,7 +249,7 @@ if __name__ == '__main__':
     # Training
 
     logs = defaultdict(list)
-    pbar = tqdm(total=total_frames * frame_skip)
+    pbar = tqdm(total=total_frames)
     eval_str = ""
 
     # outer loop to collect batches of data
@@ -280,7 +281,7 @@ if __name__ == '__main__':
                 optim.zero_grad()
 
             logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-            pbar.update(tensordict_data.numel() * frame_skip)
+            pbar.update(tensordict_data.numel())
             cum_reward_str = (
                 f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
             )
