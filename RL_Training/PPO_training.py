@@ -1,7 +1,7 @@
 from collections import defaultdict
 import sys
 import argparse
-
+import pickle
 sys.path.insert(0, '/root/causal_world/')
 import numpy as np
 import torch
@@ -56,7 +56,7 @@ def split_3dtensor_on3rd(tensor, index):
 # helper function to break down the hidden states into a list of hidden states and pass them to the planner,then
 # process the next hidden states again into the required format
 def planner_with_split(planner, observation, hidden_states, cell_states, model_params, device=device):
-    # always add a batch_size dimension here. In the end remove the dimension again if the input has not batch_size
+    # always add a batch_size dimension here. In the end remove the dimension again if the input has no batch_size
     # if no batch_size, add a batch_size dimension
     if hidden_states.dim() == 3:
         hidden_states = hidden_states.unsqueeze(0)
@@ -77,7 +77,7 @@ def planner_with_split(planner, observation, hidden_states, cell_states, model_p
         cell_states_list.append(cell_state)
     # the lists passed t the planner: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
     loc, scale, new_hidden_states, new_cell_states = planner(observation, hidden_states_list, cell_states_list)
-    # returned hidden_states_lists: (num_levels, batch_size, 2, hidden_size_at_level)
+    # returned hidden_states_lists: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
     # the first rows: shape (batch_size, 2, start_hidden_size)
     new_hidden_states_first_row = new_hidden_states[0]
     new_cell_states_first_row = new_cell_states[0]
@@ -89,8 +89,8 @@ def planner_with_split(planner, observation, hidden_states, cell_states, model_p
         (new_hidden_states_second_row, torch.zeros(new_hidden_states_second_row.shape[0], 2, difference, device=device)), dim=2)
     new_cell_states_second_row = torch.cat(
         (new_cell_states_second_row, torch.zeros(new_cell_states_second_row.shape[0], 2, difference, device=device)), dim=2)
-    new_hidden_states = torch.stack((new_hidden_states_first_row, new_hidden_states_second_row), dim=1)
-    new_cell_states = torch.stack((new_cell_states_first_row, new_cell_states_second_row), dim=1)
+    new_hidden_states = torch.stack((new_hidden_states_first_row, new_hidden_states_second_row), dim=2)
+    new_cell_states = torch.stack((new_cell_states_first_row, new_cell_states_second_row), dim=2)
     # if batch_size was 1, remove the batch_size dimension
     if new_hidden_states.shape[0] == 1:
         new_hidden_states = new_hidden_states.squeeze(0)
@@ -150,7 +150,7 @@ if __name__ == '__main__':
                     help="the number of epochs for training")
     ap.add_argument("--total_frames",
                     required=False,
-                    default=2e5,
+                    default=2e7,
                     help="the total number of frames to train")
     ap.add_argument("--frames_per_batch",
                     required=False,
@@ -254,7 +254,7 @@ if __name__ == '__main__':
 
     # outer loop to collect batches of data
     for i, tensordict_data in enumerate(data_collector):
-        # inner loop to perform epoches of training
+        # inner loop to perform epochs of training
         for _ in range(num_epochs):
             # calculate the advantages
             with torch.no_grad():
@@ -262,7 +262,7 @@ if __name__ == '__main__':
             # flatten the batch_size dimension (note we may have several workers collecting data, resulting in a batch_size
             # of higher dimension)
             data_view = tensordict_data.reshape(-1)
-            replay_buffer.extend(data_view.cpu())
+            replay_buffer.extend(data_view)
             # for sub_batch, calculate the loss and backprop
             for _ in range(frames_per_batch // sub_batch_size):
                 subdata = replay_buffer.sample(sub_batch_size)
@@ -280,55 +280,52 @@ if __name__ == '__main__':
                 optim.step()
                 optim.zero_grad()
 
-            logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-            pbar.update(tensordict_data.numel())
-            cum_reward_str = (
-                f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
-            )
-            logs["step_count"].append(tensordict_data["step_count"].max().item())
-            stepcount_str = f"step count (max): {logs['step_count'][-1]}"
-            logs["lr"].append(optim.param_groups[0]["lr"])
-            lr_str = f"lr policy: {logs['lr'][-1]: 4.4f}"
-            if i % 10 == 0:
-                # We evaluate the policy once every 10 batches of data.
-                # Evaluation is rather simple: execute the policy without exploration
-                # (take the expected value of the action distribution) for a given
-                # number of steps (1000, which is our env horizon).
-                # The ``rollout`` method of the env can take a policy as argument:
-                # it will then execute this policy at each step.
-                with set_exploration_type(ExplorationType.MEAN), torch.no_grad():
-                    # execute a rollout with the trained policy
-                    eval_rollout = env.rollout(1000, policy_module)
-                    logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
-                    logs["eval reward (sum)"].append(
-                        eval_rollout["next", "reward"].sum().item()
-                    )
-                    logs["eval step_count"].append(eval_rollout["step_count"].max().item())
-                    eval_str = (
-                        f"eval cumulative reward: {logs['eval reward (sum)'][-1]: 4.4f} "
-                        f"(init: {logs['eval reward (sum)'][0]: 4.4f}), "
-                        f"eval step-count: {logs['eval step_count'][-1]}"
-                    )
-                    del eval_rollout
-            pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
+        logs["reward"].append(tensordict_data["next", "reward"].mean().item())
+        pbar.update(tensordict_data.numel())
+        cum_reward_str = (
+            f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
+        )
+        # logs["step_count"].append(tensordict_data["step_count"].max().item())
+        # stepcount_str = f"step count (max): {logs['step_count'][-1]}"
+        logs["lr"].append(optim.param_groups[0]["lr"])
+        lr_str = f"lr policy: {logs['lr'][-1]: 4.4f}"
+        if i % 10 == 0:
+            # We evaluate the policy once every 10 batches of data.
+            # Evaluation is rather simple: execute the policy without exploration
+            # (take the expected value of the action distribution) for a given
+            # number of steps (1000, which is our env horizon).
+            # The ``rollout`` method of the env can take a policy as argument:
+            # it will then execute this policy at each step.
+            with set_exploration_type(ExplorationType.MEAN), torch.no_grad():
+                # execute a rollout with the trained policy
+                eval_rollout = env.rollout(1000, policy_module)
+                logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
+                logs["eval reward (sum)"].append(
+                    eval_rollout["next", "reward"].sum().item()
+                )
+                logs["eval step_count"].append(eval_rollout["step_count"].max().item())
+                eval_str = (
+                    f"eval cumulative reward: {logs['eval reward (sum)'][-1]: 4.4f} "
+                    f"(init: {logs['eval reward (sum)'][0]: 4.4f}), "
+                    f"eval step-count: {logs['eval step_count'][-1]}"
+                )
+                del eval_rollout
+        # pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
+        pbar.set_description(", ".join([eval_str, cum_reward_str, lr_str]))
 
-            # We're also using a learning rate scheduler. Like the gradient clipping,
-            # this is a nice-to-have but nothing necessary for PPO to work.
-            scheduler.step()
+        # We're also using a learning rate scheduler. Like the gradient clipping,
+        # this is a nice-to-have but nothing necessary for PPO to work.
+        scheduler.step()
 
     # save the model
     torch.save(policy_module.state_dict(), "pushing_policy_second_joint_positions.pt")
+    with open('../Training_logs/pushing_policy_attention_through.pkl', 'wb') as f:
+        pickle.dump(logs, f)
     plt.figure(figsize=(10, 10))
-    plt.subplot(2, 2, 1)
+    plt.subplot(2, 1, 1)
     plt.plot(logs["reward"])
     plt.title("training rewards (average)")
-    plt.subplot(2, 2, 2)
-    plt.plot(logs["step_count"])
-    plt.title("Max step count (training)")
-    plt.subplot(2, 2, 3)
+    plt.subplot(2, 1, 2)
     plt.plot(logs["eval reward (sum)"])
     plt.title("Return (test)")
-    plt.subplot(2, 2, 4)
-    plt.plot(logs["eval step_count"])
-    plt.title("Max step count (test)")
     plt.show()
