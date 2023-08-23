@@ -3,6 +3,7 @@ import torch.nn as nn
 import env_constants
 import torch.nn.functional as F
 from types import MappingProxyType
+import math
 
 observation_constants = env_constants.EnvConstants.OBSERVATION_INDICES
 
@@ -115,8 +116,10 @@ class DotProductAttention(nn.Module):
     # keys: (batch_size, num_keys, query_key_size)
     # values: (batch_size, num_keys, value_size)
     def forward(self, queries, keys, values):
+        # get key size
+        key_size = keys.size()[-1]
         # (batch_size, num_queries, num_keys)
-        scores = torch.matmul(queries, keys.transpose(-2, -1))
+        scores = torch.matmul(queries, keys.transpose(-2, -1)) / math.sqrt(key_size)
         # (batch_size, num_queries, num_keys)
         attention_weights = torch.softmax(scores, dim=-1)
         # (batch_size, num_queries, value_size)

@@ -30,7 +30,7 @@ from torchrl.envs import (
 from torchrl.envs.libs.gym import GymEnv
 from Env.CausalEnv import CausalWorldEnv
 from env_constants import *
-from Models.controller_attention_through import *
+from Models.controller_attention_through_with_mask import *
 from torchrl.objectives import ClipPPOLoss
 from torchrl.data import UnboundedContinuousTensorSpec
 from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
@@ -134,7 +134,7 @@ if __name__ == '__main__':
                     help="the number of levels in the model")
     ap.add_argument("--model_start_hidden_size",
                     required=False,
-                    default=256,
+                    default=512,
                     help="the number of hidden units in the first layer of the model, must be devisible by 2**(num_levels-1)")
     # ap.add_argument("--num_parallel_envs",
     #                 required=False,
@@ -142,7 +142,7 @@ if __name__ == '__main__':
     #                 help="the number of parallel environments when collecting data. The number depends on the number of your cpu cores.")
     ap.add_argument("--sub-batch_size",
                     required=False,
-                    default=100,
+                    default=25,
                     help="the sub batch size for training")
     ap.add_argument("--num_epochs",
                     required=False,
@@ -150,11 +150,11 @@ if __name__ == '__main__':
                     help="the number of epochs for training")
     ap.add_argument("--total_frames",
                     required=False,
-                    default=2e7,
+                    default=1e6,
                     help="the total number of frames to train")
     ap.add_argument("--frames_per_batch",
                     required=False,
-                    default=1000,
+                    default=500,
                     help="the number of frames per batch")
     args = vars(ap.parse_args())
     sub_batch_size=args['sub_batch_size']
@@ -181,7 +181,7 @@ if __name__ == '__main__':
                 )
     )
     lazy_planner = LazyPlanner(num_levels=model_params['num_levels'], start_hidden_size=model_params['start_hidden_size'],
-                               task_params=EnvConstants.TASK_PARAMS['pushing'], device=device).to(device)
+                               task_params=EnvConstants.TASK_PARAMS['pushing'], device=device, dropout=0).to(device)
 
 
 
@@ -318,8 +318,10 @@ if __name__ == '__main__':
         scheduler.step()
 
     # save the model
-    torch.save(policy_module.state_dict(), "pushing_policy_second_joint_positions.pt")
-    with open('../Training_logs/pushing_policy_attention_through.pkl', 'wb') as f:
+    torch.save(policy_module.state_dict(),
+               "positions,attention_through,512_3,1e6/pushing_policy_second_joint_positions.pt")
+    with open(
+            '../Training_logs/pushing_policy_attention_through.pkl', 'wb') as f:
         pickle.dump(logs, f)
     plt.figure(figsize=(10, 10))
     plt.subplot(2, 1, 1)
