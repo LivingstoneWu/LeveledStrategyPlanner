@@ -5,12 +5,12 @@ import numpy as np
 from causal_world.utils.rotation_utils import cart2cyl, cyl2cart
 from causal_world.envs.robot.trifinger import TriFingerRobot
 
+
 # redefine a task of reaching nearby positions
 class ReachNearbyGenerator(ReachingTaskGenerator):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
 
     def sample_new_goal_pos(self, starting_positions_cart) -> dict:
         original_positions = starting_positions_cart
@@ -28,7 +28,6 @@ class ReachNearbyGenerator(ReachingTaskGenerator):
 
         return new_goal
 
-
     # samples starting cartesian positions from the intervention space, then turn them into joint positions
     def sample_starting_positions(self):
         # Previous code: we would not return dict here anymore, but return the array of joint positions
@@ -41,12 +40,13 @@ class ReachNearbyGenerator(ReachingTaskGenerator):
         tip_position_bounds = self.get_intervention_space_a_b()['goal_60']['cylindrical_position']
         positions = np.array([])
         for i in range(3):
-            positions = np.append(positions, cyl2cart(np.random.uniform(tip_position_bounds[0], tip_position_bounds[1])))
+            positions = np.append(positions,
+                                  cyl2cart(np.random.uniform(tip_position_bounds[0], tip_position_bounds[1])))
         return self._robot.get_joint_positions_from_tip_positions(positions), positions
 
 
-def init_env(DummyTask: ReachNearbyGenerator) -> CausalWorld:
-    task = ReachNearbyGenerator(joint_positions=DummyTask.sample_starting_positions())
+def init_env(dummy_task: ReachNearbyGenerator) -> CausalWorld:
+    task = ReachNearbyGenerator(joint_positions=dummy_task.sample_starting_positions())
     env = CausalWorld(task=task, enable_visualization=False)
     env.reset()
     env.do_intervention(env.get_task().sample_new_goal())
@@ -54,16 +54,16 @@ def init_env(DummyTask: ReachNearbyGenerator) -> CausalWorld:
 
 
 if __name__ == '__main__':
-    DummyTask = ReachNearbyGenerator()
-    DummyEnv = CausalWorld(task=DummyTask, enable_visualization=False)
-    # observation = DummyEnv.reset()
+    dummy_task = ReachNearbyGenerator()
+    dummy_env = CausalWorld(task=dummy_task, enable_visualization=False)
+    # observation = dummy_env.reset()
     # print(observation[19:28])
     # print(cart2cyl(observation[19:22]))
-    # print(DummyTask._task_robot_observation_keys)
-    # print(DummyTask._current_full_observations_dict)
-    # print(DummyTask.get_intervention_space_a_b())
+    # print(dummy_task._task_robot_observation_keys)
+    # print(dummy_task._current_full_observations_dict)
+    # print(dummy_task.get_intervention_space_a_b())
 
-    start_joint_positions, start_cart_positions = DummyTask.sample_starting_positions()
+    start_joint_positions, start_cart_positions = dummy_task.sample_starting_positions()
     task = ReachNearbyGenerator(joint_positions=start_joint_positions)
     env = CausalWorld(task=task, enable_visualization=False)
     observation = env.reset()
@@ -78,5 +78,3 @@ if __name__ == '__main__':
     # env.do_intervention(task.sample_new_goal_pos(observation[19:28]))
     # print(observation[19:28])
     # print(env.get_task().get_desired_goal())
-
-

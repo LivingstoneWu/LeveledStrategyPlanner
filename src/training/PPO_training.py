@@ -2,110 +2,44 @@ from collections import defaultdict
 import sys
 import argparse
 import pickle
+
 sys.path.insert(0, '/root/causal_world/')
-import numpy as np
-import torch
-from causal_world.envs import CausalWorld
 from tensordict.nn import TensorDictModule
-from torchrl.collectors import SyncDataCollector
-from torchrl.data.replay_buffers import ReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.data.replay_buffers.storages import LazyTensorStorage
-from torch import nn
-from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.modules import ProbabilisticActor, TanhNormal, ValueOperator
 from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.data.replay_buffers.storages import LazyTensorStorage, LazyMemmapStorage
+from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from torchrl.envs import (
     Compose,
-    DoubleToFloat,
-    ObservationNorm,
     StepCounter,
     TransformedEnv,
     InitTracker,
     TensorDictPrimer,
 )
-from torchrl.envs.libs.gym import GymEnv
-from Env.CausalEnv import CausalWorldEnv
-from env_constants import *
-from Models.controller_attention_through_with_mask import *
+from src.env.CausalEnv import CausalWorldEnv
+from config.env_constants import *
+from src.agents.controller_attention_through_with_mask import *
 from torchrl.objectives import ClipPPOLoss
 from torchrl.data import UnboundedContinuousTensorSpec
-from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
+from torchrl.envs.utils import ExplorationType, set_exploration_type
 
 from causal_world.task_generators.task import generate_task
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from src.utils.helper_functions import *
 
-device = "cpu" if not torch.has_cuda else "cuda:0"
-# device = torch.device('mps')
-
-# helper function to split tensor at given index
-def split_2dtensor_on2nd(tensor, index):
-    return tensor[:, :index], tensor[:, index:]
-
-
-# helper function to split tensor at given index
-def split_3dtensor_on3rd(tensor, index):
-    return tensor[:, :, :index], tensor[:, :, index:]
-
-
-# helper function to break down the hidden states into a list of hidden states and pass them to the planner,then
-# process the next hidden states again into the required format
-def planner_with_split(planner, observation, hidden_states, cell_states, model_params, device=device):
-    # always add a batch_size dimension here. In the end remove the dimension again if the input has no batch_size
-    # if no batch_size, add a batch_size dimension
-    if hidden_states.dim() == 3:
-        hidden_states = hidden_states.unsqueeze(0)
-        cell_states = cell_states.unsqueeze(0)
-    if observation.dim() == 1:
-        observation = observation.unsqueeze(0)
-    # hidden states size (batch_size, 2 (layers at each level), 2, start_hidden_size)
-    hidden_states = torch.flatten(hidden_states, start_dim=2)
-    cell_states = torch.flatten(cell_states, start_dim=2)
-    hidden_states_list = []
-    cell_states_list = []
-    # move observation to device
-    observation = observation.to(device)
-    for i in range(model_params['num_levels']):
-        hidden_state, hidden_states = split_3dtensor_on3rd(hidden_states, model_params['start_hidden_size'] // (2 ** i))
-        cell_state, cell_states = split_3dtensor_on3rd(cell_states, model_params['start_hidden_size'] // (2 ** i))
-        hidden_states_list.append(hidden_state)
-        cell_states_list.append(cell_state)
-    # the lists passed t the planner: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
-    loc, scale, new_hidden_states, new_cell_states = planner(observation, hidden_states_list, cell_states_list)
-    # returned hidden_states_lists: (num_levels, batch_size, 2 (layers), hidden_size_at_level)
-    # the first rows: shape (batch_size, 2, start_hidden_size)
-    new_hidden_states_first_row = new_hidden_states[0]
-    new_cell_states_first_row = new_cell_states[0]
-    # second rows: shape (batch_size, 2, start_hidden_size-difference)
-    new_hidden_states_second_row = torch.cat(new_hidden_states[1:], dim=2)
-    new_cell_states_second_row = torch.cat(new_cell_states[1:], dim=2)
-    difference = model_params['start_hidden_size'] - new_hidden_states_second_row.shape[2]
-    new_hidden_states_second_row = torch.cat(
-        (new_hidden_states_second_row, torch.zeros(new_hidden_states_second_row.shape[0], 2, difference, device=device)), dim=2)
-    new_cell_states_second_row = torch.cat(
-        (new_cell_states_second_row, torch.zeros(new_cell_states_second_row.shape[0], 2, difference, device=device)), dim=2)
-    new_hidden_states = torch.stack((new_hidden_states_first_row, new_hidden_states_second_row), dim=2)
-    new_cell_states = torch.stack((new_cell_states_first_row, new_cell_states_second_row), dim=2)
-    # if batch_size was 1, remove the batch_size dimension
-    if new_hidden_states.shape[0] == 1:
-        new_hidden_states = new_hidden_states.squeeze(0)
-        new_cell_states = new_cell_states.squeeze(0)
-        loc = loc.squeeze(0)
-        scale = scale.squeeze(0)
-    return loc, scale, new_hidden_states, new_cell_states
 
 # wrapper function to pass to the policy module
 def planner_func(observation, hidden_states, cell_states):
     return planner_with_split(lazy_planner, observation, hidden_states, cell_states, model_params)
 
+
 # helper function to get the hidden states specs
 def get_hidden_states_specs(model_params):
     return UnboundedContinuousTensorSpec((2, 2, model_params['start_hidden_size']))
+
 
 if __name__ == '__main__':
 
@@ -113,7 +47,6 @@ if __name__ == '__main__':
     env_freq = 250
     frame_skip = 5
     action_mode = 'joint_positions'
-
 
     # training params
     clip_epsilon = (0.2)
@@ -157,21 +90,19 @@ if __name__ == '__main__':
                     default=500,
                     help="the number of frames per batch")
     args = vars(ap.parse_args())
-    sub_batch_size=args['sub_batch_size']
-    num_epochs=args['num_epochs']
-    frames_per_batch=args['frames_per_batch']
-    total_frames=args['total_frames']
-    model_params=dict()
-    model_params['num_levels']=args['model_levels']
-    model_params['start_hidden_size']=args['model_start_hidden_size']
-    task_id=args['task']
+    sub_batch_size = args['sub_batch_size']
+    num_epochs = args['num_epochs']
+    frames_per_batch = args['frames_per_batch']
+    total_frames = args['total_frames']
+    model_params = dict()
+    model_params['num_levels'] = args['model_levels']
+    model_params['start_hidden_size'] = args['model_start_hidden_size']
+    task_id = args['task']
     # num_parallel_envs=args['num_parallel_envs']
 
-
-
     env = CausalWorldEnv(task_params=EnvConstants.TASK_PARAMS[task_id],
-                                 task=generate_task(task_generator_id=task_id), enable_visualization=False,
-                                 action_mode=action_mode)
+                         task=generate_task(task_generator_id=task_id), enable_visualization=False,
+                         action_mode=action_mode)
     env = TransformedEnv(
         env,
         Compose(StepCounter(),
@@ -180,11 +111,9 @@ if __name__ == '__main__':
                                  cell_states=get_hidden_states_specs(model_params)),
                 )
     )
-    lazy_planner = LazyPlanner(num_levels=model_params['num_levels'], start_hidden_size=model_params['start_hidden_size'],
+    lazy_planner = LazyPlanner(num_levels=model_params['num_levels'],
+                               start_hidden_size=model_params['start_hidden_size'],
                                task_params=EnvConstants.TASK_PARAMS['pushing'], device=device, dropout=0).to(device)
-
-
-
 
     policy_module = TensorDictModule(
         planner_func, in_keys=['observation', 'hidden_states', 'cell_states'],
@@ -321,7 +250,7 @@ if __name__ == '__main__':
     torch.save(policy_module.state_dict(),
                "positions,attention_through,512_3,1e6/pushing_policy_second_joint_positions.pt")
     with open(
-            '../Training_logs/pushing_policy_attention_through.pkl', 'wb') as f:
+            '../training_logs/pushing_policy_attention_through.pkl', 'wb') as f:
         pickle.dump(logs, f)
     plt.figure(figsize=(10, 10))
     plt.subplot(2, 1, 1)

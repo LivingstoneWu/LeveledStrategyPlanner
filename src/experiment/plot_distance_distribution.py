@@ -1,15 +1,5 @@
 from causal_world.envs.causalworld import CausalWorld
 from causal_world.task_generators.task import generate_task
-import numpy as np
-import matplotlib.pyplot as plt
-import torch
-import gym
-
-import env_constants
-from Env.CausalEnv import CausalWorldEnv
-from torchrl.envs.utils import check_env_specs
-from Models import hierarchical_controller
-from env_constants import *
 
 import sys
 sys.path.insert(0, '/root/causal_world/')

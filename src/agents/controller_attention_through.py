@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import env_constants
+from config import env_constants
 import torch.nn.functional as F
-from types import MappingProxyType
 import math
 
 observation_constants = env_constants.EnvConstants.OBSERVATION_INDICES
@@ -100,22 +99,11 @@ def padding_observation(observation, task_params, device, observation_params=obs
     pad_block = torch.cat((block_observation, torch.zeros(observation.size()[0], (
                 observation_params['num_blocks'] - task_params['num_blocks']) * observation_params['block_length'], device=device)),
                           dim=1)
+
     # concatenate the padded observation tensor
     padded_observation = torch.cat((joint_observation, pad_obj, pad_goal, pad_block), dim=1)
+
     return padded_observation
-
-def get_mask(observation_params, task_params, device):
-    joint_mask = torch.zeros(observation_params['num_joints'], device=device)
-    obj_mask = torch.cat((torch.zeros(task_params['num_objects'], device=device),
-                          torch.ones(observation_params['num_objects'] - task_params['num_objects'])))
-    goal_mask = torch.cat((torch.zeros(task_params['num_goals'], device=device),
-                           torch.ones(observation_params['num_goals'] - task_params['num_goals'])))
-    block_mask = torch.cat((torch.zeros(task_params['num_blocks'], device=device),
-                            torch.ones(observation_params['num_blocks'] - task_params['num_blocks'])))
-    # note the mask do not have batch_size dimension
-    mask_vec = torch.cat((joint_mask, obj_mask, goal_mask, block_mask), dim=0)
-
-    return mask_vec
 
 
 class DotProductAttention(nn.Module):
@@ -126,15 +114,13 @@ class DotProductAttention(nn.Module):
     # queries: (batch_size, num_queries, query_key_size)
     # keys: (batch_size, num_keys, query_key_size)
     # values: (batch_size, num_keys, value_size)
-    def forward(self, queries, keys, values, mask):
-        # get the key_size
+    def forward(self, queries, keys, values):
+        # get key size
         key_size = keys.size()[-1]
         # (batch_size, num_queries, num_keys)
         scores = torch.matmul(queries, keys.transpose(-2, -1)) / math.sqrt(key_size)
-        # mask out the padded values
-        masked_scores = scores + mask.repeat(scores.size()[0], scores.size()[1], 1) * -1e9
         # (batch_size, num_queries, num_keys)
-        attention_weights = torch.softmax(masked_scores, dim=-1)
+        attention_weights = torch.softmax(scores, dim=-1)
         # (batch_size, num_queries, value_size)
         res = torch.bmm(self.dropout(attention_weights), values)
         return res
@@ -149,9 +135,8 @@ class StarterAttentionSubModule(nn.Module):
 
     """
 
-    def __init__(self, mask, observation_params=observation_params, key_value_size=DEFAULT_KEY_VALUE_SIZE, dropout=0.1):
+    def __init__(self, observation_params=observation_params, key_value_size=DEFAULT_KEY_VALUE_SIZE, dropout=0.1):
         super(StarterAttentionSubModule, self).__init__()
-        self.mask = mask
         # indices, parameters
         self.key_value_size = key_value_size
         self.observation_params = observation_params
@@ -247,7 +232,7 @@ class StarterAttentionSubModule(nn.Module):
         residuals = torch.cat([joint_residuals, object_residuals, goal_residuals, block_residuals], dim=1)
 
         # compute attention, size (batch_size, num_queries, key_value_size), and add residual connection
-        x = self.Attention(queries, keys, values, self.mask) + residuals
+        x = self.Attention(queries, keys, values) + residuals
 
         # layer normalization
         x = self.LayerNorm(x)
@@ -262,9 +247,8 @@ class AttentionSubModule(nn.Module):
 
     """
 
-    def __init__(self, mask, attention_params=attention_params, observation_params=observation_params, key_value_size=DEFAULT_KEY_VALUE_SIZE, dropout=0.1):
+    def __init__(self, attention_params=attention_params, observation_params=observation_params, key_value_size=DEFAULT_KEY_VALUE_SIZE, dropout=0.1):
         super(AttentionSubModule, self).__init__()
-        self.mask=mask
         # indices, parameters
         self.key_value_size = key_value_size
         self.attention_params = attention_params
@@ -341,7 +325,7 @@ class AttentionSubModule(nn.Module):
         values = torch.cat([joint_values, object_values, goal_values, block_values], dim=1)
 
         # compute attention, size (batch_size, num_queries, key_value_size), and add residual connection
-        x = self.Attention(queries, keys, values, self.mask) + residuals
+        x = self.Attention(queries, keys, values) + residuals
 
         # layer normalization
         x = self.LayerNorm(x)
@@ -355,10 +339,10 @@ class LazyPlannerModule(nn.Module):
     Output: hidden_state (plan) for the next level
     """
 
-    def __init__(self, hidden_size, mask_vec, dropout=0.1, observation_params=observation_params):
+    def __init__(self, hidden_size, dropout=0.1, observation_params=observation_params):
         super(LazyPlannerModule, self).__init__()
         self.hidden_size = hidden_size
-        self.attention = AttentionSubModule(mask=mask_vec, dropout=dropout)
+        self.attention = AttentionSubModule(dropout=dropout)
         # last layer's hidden size is 2 * of this layer
         self.lstm = nn.LSTM(input_size=hidden_size * 2 + observation_params['attention_length'], num_layers=2,
                             hidden_size=hidden_size, batch_first=True, dropout=dropout)
@@ -392,10 +376,10 @@ class LazyPlannerStarter(nn.Module):
     Output: hidden_state (plan) for the next level
     """
 
-    def __init__(self, hidden_size, mask_vec, dropout=0.1, observation_params=observation_params):
+    def __init__(self, hidden_size, dropout=0.1, observation_params=observation_params):
         super(LazyPlannerStarter, self).__init__()
         self.hidden_size = hidden_size
-        self.attention = StarterAttentionSubModule(mask=mask_vec, dropout=dropout)
+        self.attention = StarterAttentionSubModule(dropout=dropout)
         # last layer's hidden size is 2 * of this layer
         self.lstm = nn.LSTM(input_size=observation_params['attention_length'], num_layers=2,
                             hidden_size=hidden_size, batch_first=True, dropout=dropout)
@@ -441,15 +425,14 @@ class LazyPlanner(nn.Module):
         self.dropout = dropout
         self.device = device
         self.observation_params = observation_params
-        self.mask_vec = get_mask(observation_params, task_params, device)
         # define layers of planners
-        self.startPlannerLayer = LazyPlannerStarter(start_hidden_size, mask_vec=self.mask_vec, dropout=dropout,
+        self.startPlannerLayer = LazyPlannerStarter(start_hidden_size, dropout=dropout,
                                                     observation_params=observation_params)
         self.plannerLayers = nn.ModuleList()
         current_hidden_size = start_hidden_size // 2
         for i in range(num_levels - 1):
             self.plannerLayers.append(
-                LazyPlannerModule(current_hidden_size, mask_vec=self.mask_vec, dropout=dropout, observation_params=observation_params))
+                LazyPlannerModule(current_hidden_size, dropout=dropout, observation_params=observation_params))
             current_hidden_size = current_hidden_size // 2
         # final FC layers
         self.fc1 = nn.Linear(current_hidden_size * 2, current_hidden_size * 4)
@@ -461,7 +444,7 @@ class LazyPlanner(nn.Module):
 
 
     def forward(self, observation, hidden_states, cell_states):
-        padded_observation= padding_observation(observation, self.task_params, device=self.device)
+        padded_observation = padding_observation(observation, self.task_params, device=self.device)
         new_hidden_states = []
         new_cell_states = []
         # start planner
@@ -494,9 +477,8 @@ class ValueNetwork(nn.Module):
     def __init__(self, task_params, device, observation_params=observation_params):
         super(ValueNetwork, self).__init__()
         self.task_params = task_params
-        self.mask= get_mask(observation_params, task_params, device)
         self.device = device
-        self.attention = StarterAttentionSubModule(mask=self.mask)
+        self.attention = StarterAttentionSubModule()
         self.fc1 = nn.Linear(observation_params['attention_length'], 512)
         self.fc2 = nn.Linear(512, 512)
         self.fc3 = nn.Linear(512, 1)

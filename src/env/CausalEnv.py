@@ -9,11 +9,11 @@ import numpy as np
 from torch import Tensor
 from torchrl.envs import EnvBase
 
-from Models import hierarchical_controller
+from src.agents import hierarchical_controller
 
 
 # this part rewrites the CausalWorld Env to fit into torchRL
-# Note, the environment observation is padded here, no more padding needed to feed into the model
+# Note, the environment observation is padded here, no more padding needed when feeding into the model
 
 class CausalWorldEnv(EnvBase):
     def __init__(self, task_params, observation_params=hierarchical_controller.observation_params, **kwargs):
